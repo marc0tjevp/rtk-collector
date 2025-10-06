@@ -86,26 +86,38 @@ def get_cpu_temp_c() -> Optional[float]:
 
 
 def setup_gpio():
-    """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 with fixed pins."""
-    try:
-        import gpiod
-    except Exception as e:
-        print(f"[gpio] libgpiod not available: {e}")
-        return None, {}
+    """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 using libgpiod v2 API."""
+    import gpiod
 
-    try:
-        chip = gpiod.Chip("/dev/gpiochip0")  # fixed for this box
-        pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
-        lines = {}
-        for name, pin in pins.items():
-            line = chip.get_line(pin)
-            line.request(consumer="rtk-collector", type=gpiod.LINE_REQ_DIR_IN)
-            lines[name] = line
-        print(f"[gpio] ready on /dev/gpiochip0: {pins}")
-        return chip, lines
-    except Exception as e:
-        print(f"[gpio] setup failed on /dev/gpiochip0: {e}")
-        return None, {}
+    pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
+    cfg = {pin: gpiod.LineSettings(direction=gpiod.LineDirection.INPUT)
+           for pin in pins.values()}
+
+    lines = gpiod.request_lines(
+        "/dev/gpiochip0",
+        consumer="rtk-collector",
+        config=cfg
+    )
+
+    def reader():
+        vals = lines.get_values(list(pins.values()))
+        out = {}
+        if isinstance(vals, dict):
+            for name, pin in pins.items():
+                out[name] = int(vals.get(pin, 0))
+        else:
+            for name, val in zip(pins.keys(), vals):
+                out[name] = int(val)
+        return out
+
+    def releaser():
+        try:
+            lines.release()
+        except Exception:
+            pass
+
+    print(f"[gpio] ready (v2) on /dev/gpiochip0: {pins}")
+    return reader, releaser
 
 
 def read_gpio(lines):
@@ -135,12 +147,12 @@ def main():
             time.sleep(2)
 
     # GPIO init
-    chip = None
-    gpio_lines = {}
+    gpio_read = None
+    def gpio_release(): return None
     try:
-        chip, gpio_lines = setup_gpio()
-    except Exception:
-        pass
+        gpio_read, gpio_release = setup_gpio()
+    except Exception as e:
+        print(f"[gpio] init failed: {e}")
 
     client.loop_start()
 
@@ -163,11 +175,10 @@ def main():
             publish(client, "sys/uptime_dhms", format_dhms(uptime_sec))
 
             # GPIO (if available)
-            if gpio_lines:
-                vals = read_gpio(gpio_lines)
+            if gpio_read:
+                vals = gpio_read()
                 for name, val in vals.items():
-                    if val is not None:
-                        publish(client, f"gpio/{name}", val)
+                    publish(client, f"gpio/{name}", val)
 
             time.sleep(INTERVAL)
     except KeyboardInterrupt:
@@ -178,17 +189,7 @@ def main():
         client.disconnect()
         # release GPIO lines
         try:
-            if gpio_lines:
-                for line in gpio_lines.values():
-                    try:
-                        line.release()
-                    except Exception:
-                        pass
-            if chip:
-                try:
-                    chip.close()
-                except Exception:
-                    pass
+            gpio_release()
         except Exception:
             pass
 
