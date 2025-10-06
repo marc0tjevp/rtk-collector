@@ -7,7 +7,7 @@ import psutil
 from threading import Event
 import paho.mqtt.client as mqtt
 from typing import Optional
-from gpiod.line import Direction, Value  # v2 enums present on your box
+from gpiod.line import Direction, Value
 import gpiod
 
 BROKER_HOST = os.getenv("MQTT_HOST", "localhost")

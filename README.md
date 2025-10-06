@@ -33,12 +33,6 @@ rtk/<device-id>/
 
 ## Setup
 
-### Prerequisites
-- Debian-based system (tested on ISG-502 / Raspberry Pi OS).
-- `mosquitto` broker installed.
-- Python 3.9+ with `venv`.
-
-### Install
 ```bash
 cd /opt
 git clone https://github.com/marc0tjevp/rtk-collector.git
@@ -52,7 +46,6 @@ This will:
 - Install Mosquitto broker/clients.
 - Set up and enable the `rtk-collector.service`.
 
-### Run
 Service runs automatically after boot:
 ```bash
 sudo systemctl status rtk-collector
@@ -63,4 +56,4 @@ You can test locally:
 mosquitto_sub -h localhost -t 'rtk/#' -v
 ```
 
-Or connect from another host using [MQTT Explorer](https://mqtt-explorer.com/).
+Or connect from another host using with e.g. [MQTT Explorer](https://mqtt-explorer.com/).
