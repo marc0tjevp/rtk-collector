@@ -86,7 +86,7 @@ def get_cpu_temp_c() -> Optional[float]:
 
 
 def setup_gpio():
-    """Prepare IO0–IO3 as inputs via libgpiod. Returns (chip, lines_dict) or (None, {})."""
+    """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 with fixed pins."""
     try:
         import gpiod
     except Exception as e:
@@ -94,17 +94,17 @@ def setup_gpio():
         return None, {}
 
     try:
-        chip = gpiod.Chip(GPIO_CHIP)
+        chip = gpiod.Chip("/dev/gpiochip0")  # fixed for this box
         pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
         lines = {}
         for name, pin in pins.items():
             line = chip.get_line(pin)
             line.request(consumer="rtk-collector", type=gpiod.LINE_REQ_DIR_IN)
             lines[name] = line
-        print(f"[gpio] ready on {GPIO_CHIP}: {pins}")
+        print(f"[gpio] ready on /dev/gpiochip0: {pins}")
         return chip, lines
     except Exception as e:
-        print(f"[gpio] setup failed: {e}")
+        print(f"[gpio] setup failed on /dev/gpiochip0: {e}")
         return None, {}
 
 
