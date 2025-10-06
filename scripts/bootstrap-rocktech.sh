@@ -25,8 +25,8 @@ allow_anonymous true
 # persistence true
 # persistence_location /var/lib/mosquitto/
 CONF
-sudo systemctl restart mosquitto
 sudo systemctl enable mosquitto
+sudo systemctl restart mosquitto
 
 echo "[4/6] Environment file…"
 if [ ! -f "$ENV_FILE" ]; then
@@ -41,10 +41,11 @@ else
   echo "  -> $ENV_FILE exists, leaving as-is."
 fi
 
-echo "[5/6] Install systemd service…"
+echo "[5/6] Install/refresh systemd service…"
 sudo cp "$SERVICE_FILE_SRC" "$SERVICE_FILE_DST"
 sudo systemctl daemon-reload
-sudo systemctl enable --now rtk-collector
+sudo systemctl enable rtk-collector
+sudo systemctl restart rtk-collector
 
 echo "[6/6] Status…"
 ip -br -4 addr show | awk '{print $1,$3}'
