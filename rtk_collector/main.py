@@ -2,6 +2,7 @@ import json
 import os
 import socket
 import time
+import glob
 import psutil
 from threading import Event
 import paho.mqtt.client as mqtt
@@ -28,8 +29,43 @@ def on_disconnect(client, userdata, rc, properties=None):
 
 
 def publish(client, path, value, retain=False):
-    payload = {"ts": int(time.time()*1000), "value": value}
+    payload = {"ts": int(time.time() * 1000), "value": value}
     client.publish(topic(path), json.dumps(payload), qos=1, retain=retain)
+
+
+def get_cpu_temp_c() -> float | None:
+    # 1) try psutil first
+    try:
+        temps = psutil.sensors_temperatures()
+        for key in ("cpu-thermal", "cpu_thermal", "coretemp", "soc_thermal"):
+            arr = temps.get(key)
+            if arr and len(arr) and hasattr(arr[0], "current"):
+                return float(arr[0].current)
+    except Exception:
+        pass
+
+    # 2) thermal_zone fallback
+    try:
+        for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
+            tfile = os.path.join(zone, "temp")
+            if os.path.exists(tfile):
+                with open(tfile) as f:
+                    raw = f.read().strip()
+                val = float(raw)
+                return val / 1000.0 if val > 200 else val
+    except Exception:
+        pass
+
+    # 3) vcgencmd (Pi-specific)
+    try:
+        import subprocess
+        out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True).strip()
+        if "temp=" in out:
+            return float(out.split("temp=")[1].split("'")[0])
+    except Exception:
+        pass
+
+    return None
 
 
 def main():
@@ -56,8 +92,10 @@ def main():
             publish(client, "heartbeat/alive", True, retain=True)
 
             # sys metrics
-            publish(client, "sys/cpu_temp_c", psutil.sensors_temperatures().get(
-                "cpu-thermal", [{"current": 0}])[0]["current"])
+            temp = get_cpu_temp_c()
+            if temp is not None:
+                publish(client, "sys/cpu_temp_c", temp)
+
             publish(client, "sys/load1", os.getloadavg()[0])
             publish(client, "sys/uptime_s", time.time() - psutil.boot_time())
 
