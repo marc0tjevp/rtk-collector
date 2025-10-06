@@ -7,8 +7,9 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=/etc/default/rtk-collector
 WorkingDirectory=/opt/rtk-collector
-ExecStart=/usr/bin/python3 -m rtk_collector.main
-Restart=on-failure
+ExecStart=/usr/bin/python3 -u -m rtk_collector.main
+Restart=always
+RestartSec=2
 User=marco
 Group=marco
 
