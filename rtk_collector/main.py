@@ -35,6 +35,14 @@ def publish(client, path, value, retain=False):
     client.publish(topic(path), json.dumps(payload), qos=1, retain=retain)
 
 
+def format_dhms(seconds: float) -> str:
+    secs = int(seconds)
+    d, r = divmod(secs, 86400)
+    h, r = divmod(r, 3600)
+    m, s = divmod(r, 60)
+    return f"{d}d {h}h {m}m {s}s"
+
+
 def get_cpu_temp_c() -> Optional[float]:
     # 1) try psutil first
     try:
@@ -61,7 +69,8 @@ def get_cpu_temp_c() -> Optional[float]:
     # 3) vcgencmd (Pi-specific)
     try:
         import subprocess
-        out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True).strip()
+        out = subprocess.check_output(
+            ["vcgencmd", "measure_temp"], text=True).strip()
         if "temp=" in out:
             return float(out.split("temp=")[1].split("'")[0])
     except Exception:
@@ -90,16 +99,21 @@ def main():
 
     try:
         while not stop.is_set():
-            # heartbeat (retained)
+            # Heartbeat (retained)
             publish(client, "heartbeat/alive", True, retain=True)
 
-            # sys metrics
+            # CPU Temp
             temp = get_cpu_temp_c()
             if temp is not None:
                 publish(client, "sys/cpu_temp_c", temp)
 
+            # Load
             publish(client, "sys/load1", os.getloadavg()[0])
-            publish(client, "sys/uptime_s", time.time() - psutil.boot_time())
+
+            # Uptime
+            uptime_sec = time.time() - psutil.boot_time()
+            publish(client, "sys/uptime_s", uptime_sec)
+            publish(client, "sys/uptime_dhms", format_dhms(uptime_sec))
 
             time.sleep(INTERVAL)
     except KeyboardInterrupt:
