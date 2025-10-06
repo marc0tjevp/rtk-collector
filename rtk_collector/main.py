@@ -8,12 +8,18 @@ from threading import Event
 import paho.mqtt.client as mqtt
 from typing import Optional
 
-
 BROKER_HOST = os.getenv("MQTT_HOST", "localhost")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
 DEVICE_ID = os.getenv("DEVICE_ID", socket.gethostname())
 BASE_TOPIC = os.getenv("BASE_TOPIC", "rtk")
 INTERVAL = int(os.getenv("INTERVAL_SEC", "5"))
+
+# GPIO env (defaults per your front panel)
+GPIO_CHIP = os.getenv("GPIO_CHIP", "gpiochip0")
+PIN_IO0 = int(os.getenv("IO0_PIN", "17"))
+PIN_IO1 = int(os.getenv("IO1_PIN", "18"))
+PIN_IO2 = int(os.getenv("IO2_PIN", "27"))
+PIN_IO3 = int(os.getenv("IO3_PIN", "22"))
 
 stop = Event()
 
@@ -79,6 +85,39 @@ def get_cpu_temp_c() -> Optional[float]:
     return None
 
 
+def setup_gpio():
+    """Prepare IO0–IO3 as inputs via libgpiod. Returns (chip, lines_dict) or (None, {})."""
+    try:
+        import gpiod
+    except Exception as e:
+        print(f"[gpio] libgpiod not available: {e}")
+        return None, {}
+
+    try:
+        chip = gpiod.Chip(GPIO_CHIP)
+        pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
+        lines = {}
+        for name, pin in pins.items():
+            line = chip.get_line(pin)
+            line.request(consumer="rtk-collector", type=gpiod.LINE_REQ_DIR_IN)
+            lines[name] = line
+        print(f"[gpio] ready on {GPIO_CHIP}: {pins}")
+        return chip, lines
+    except Exception as e:
+        print(f"[gpio] setup failed: {e}")
+        return None, {}
+
+
+def read_gpio(lines):
+    vals = {}
+    for name, line in lines.items():
+        try:
+            vals[name] = int(line.get_value())
+        except Exception:
+            vals[name] = None
+    return vals
+
+
 def main():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                          client_id=f"{DEVICE_ID}-collector")
@@ -94,6 +133,14 @@ def main():
         except Exception as e:
             print(f"[mqtt] connect failed: {e}; retrying...")
             time.sleep(2)
+
+    # GPIO init
+    chip = None
+    gpio_lines = {}
+    try:
+        chip, gpio_lines = setup_gpio()
+    except Exception:
+        pass
 
     client.loop_start()
 
@@ -115,6 +162,13 @@ def main():
             publish(client, "sys/uptime_s", uptime_sec)
             publish(client, "sys/uptime_dhms", format_dhms(uptime_sec))
 
+            # GPIO (if available)
+            if gpio_lines:
+                vals = read_gpio(gpio_lines)
+                for name, val in vals.items():
+                    if val is not None:
+                        publish(client, f"gpio/{name}", val)
+
             time.sleep(INTERVAL)
     except KeyboardInterrupt:
         pass
@@ -122,6 +176,21 @@ def main():
         stop.set()
         client.loop_stop()
         client.disconnect()
+        # release GPIO lines
+        try:
+            if gpio_lines:
+                for line in gpio_lines.values():
+                    try:
+                        line.release()
+                    except Exception:
+                        pass
+            if chip:
+                try:
+                    chip.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

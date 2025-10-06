@@ -11,7 +11,10 @@ VENV_DIR="$REPO_DIR/.venv"
 
 echo "[1/6] Installing OS packages…"
 sudo apt update
-sudo apt install -y python3-venv python3-pip mosquitto mosquitto-clients
+sudo apt install -y python3-venv python3-pip mosquitto mosquitto-clients python3-libgpiod
+
+# ensure user has gpio access
+sudo usermod -aG gpio marco
 
 echo "[2/6] Python venv + deps…"
 if [ ! -d "$VENV_DIR" ]; then
