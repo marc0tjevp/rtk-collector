@@ -15,7 +15,6 @@ BASE_TOPIC = os.getenv("BASE_TOPIC", "rtk")
 INTERVAL = int(os.getenv("INTERVAL_SEC", "5"))
 
 # GPIO env (defaults per your front panel)
-GPIO_CHIP = os.getenv("GPIO_CHIP", "gpiochip0")
 PIN_IO0 = int(os.getenv("IO0_PIN", "17"))
 PIN_IO1 = int(os.getenv("IO1_PIN", "18"))
 PIN_IO2 = int(os.getenv("IO2_PIN", "27"))
@@ -88,15 +87,15 @@ def get_cpu_temp_c() -> Optional[float]:
 def setup_gpio():
     """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 using libgpiod v2 API."""
     import gpiod
+    from gpiod.line import Direction, Settings  # v2 enums/classes
 
     pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
-    cfg = {pin: gpiod.LineSettings(direction=gpiod.LineDirection.INPUT)
-           for pin in pins.values()}
+    cfg = {pin: Settings(direction=Direction.INPUT) for pin in pins.values()}
 
     lines = gpiod.request_lines(
         "/dev/gpiochip0",
         consumer="rtk-collector",
-        config=cfg
+        config=cfg,
     )
 
     def reader():
@@ -120,16 +119,6 @@ def setup_gpio():
     return reader, releaser
 
 
-def read_gpio(lines):
-    vals = {}
-    for name, line in lines.items():
-        try:
-            vals[name] = int(line.get_value())
-        except Exception:
-            vals[name] = None
-    return vals
-
-
 def main():
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
                          client_id=f"{DEVICE_ID}-collector")
@@ -148,7 +137,7 @@ def main():
 
     # GPIO init
     gpio_read = None
-    def gpio_release(): return None
+    gpio_release = lambda: None
     try:
         gpio_read, gpio_release = setup_gpio()
     except Exception as e:
@@ -187,7 +176,6 @@ def main():
         stop.set()
         client.loop_stop()
         client.disconnect()
-        # release GPIO lines
         try:
             gpio_release()
         except Exception:
