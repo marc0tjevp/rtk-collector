@@ -7,23 +7,24 @@ SERVICE_FILE_SRC="$REPO_DIR/systemd/rtk-collector.service"
 SERVICE_FILE_DST="/etc/systemd/system/rtk-collector.service"
 MOSQ_CONF_DIR="/etc/mosquitto/conf.d"
 MOSQ_CONF_FILE="$MOSQ_CONF_DIR/rtk.conf"
+VENV_DIR="$REPO_DIR/.venv"
 
 echo "[1/6] Installing OS packages…"
 sudo apt update
-sudo apt install -y python3-pip mosquitto mosquitto-clients
+sudo apt install -y python3-venv python3-pip mosquitto mosquitto-clients
 
-echo "[2/6] Python deps…"
-python3 -m pip install --user -r "$REPO_DIR/requirements.txt"
+echo "[2/6] Python venv + deps…"
+if [ ! -d "$VENV_DIR" ]; then
+  python3 -m venv "$VENV_DIR"
+fi
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install -r "$REPO_DIR/requirements.txt"
 
 echo "[3/6] Mosquitto config for LAN access…"
 sudo mkdir -p "$MOSQ_CONF_DIR"
 sudo tee "$MOSQ_CONF_FILE" >/dev/null <<'CONF'
-# rtk-collector: allow LAN clients on default MQTT port
 listener 1883 0.0.0.0
 allow_anonymous true
-# (Optional) uncomment to keep messages across restarts
-# persistence true
-# persistence_location /var/lib/mosquitto/
 CONF
 sudo systemctl enable mosquitto
 sudo systemctl restart mosquitto
@@ -50,5 +51,5 @@ sudo systemctl restart rtk-collector
 echo "[6/6] Status…"
 ip -br -4 addr show | awk '{print $1,$3}'
 sudo ss -tlnp | grep 1883 || true
-systemctl --no-pager -l status rtk-collector | sed -n '1,8p'
-echo "OK. From Windows connect to: mqtt://<Rocktech-IP>:1883 (no auth)"
+systemctl --no-pager -l status rtk-collector | sed -n '1,12p'
+echo "OK. From Windows connect to: mqtt://<Rocktech-IP>:1883"
