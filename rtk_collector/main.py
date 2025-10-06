@@ -7,7 +7,7 @@ import psutil
 from threading import Event
 import paho.mqtt.client as mqtt
 from typing import Optional
-from gpiod.line import Direction  # <-- from your env
+from gpiod.line import Direction, Value  # <-- your env exposes these
 
 BROKER_HOST = os.getenv("MQTT_HOST", "localhost")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -28,11 +28,12 @@ def topic(path: str) -> str:
     return f"{BASE_TOPIC}/{DEVICE_ID}/{path}"
 
 
-def on_connect(client, userdata, flags, rc, properties=None):
+# Accept any extra args paho might pass (avoids signature errors)
+def on_connect(client, userdata, flags, rc, properties=None, *extra):
     print(f"[mqtt] connected rc={rc}")
 
 
-def on_disconnect(client, userdata, rc, properties=None):
+def on_disconnect(client, userdata, rc, properties=None, *extra):
     print(f"[mqtt] disconnected rc={rc}")
 
 
@@ -84,7 +85,7 @@ def get_cpu_temp_c() -> Optional[float]:
 
 def setup_gpio():
     """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 using gpiod v2 API present on this box."""
-    import gpiod  # your env has gpiod.LineSettings, request_lines
+    import gpiod  # your env has gpiod.LineSettings + request_lines
 
     pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
     cfg = {pin: gpiod.LineSettings(direction=Direction.INPUT)
@@ -101,10 +102,12 @@ def setup_gpio():
         out = {}
         if isinstance(vals, dict):
             for name, pin in pins.items():
-                out[name] = int(vals.get(pin, 0))
+                v = vals.get(pin, 0)
+                out[name] = 1 if v == Value.ACTIVE or v == 1 else 0
         else:
-            for name, val in zip(pins.keys(), vals):
-                out[name] = int(val)
+            # iterable in the same order
+            for name, v in zip(pins.keys(), vals):
+                out[name] = 1 if v == Value.ACTIVE or v == 1 else 0
         return out
 
     def releaser():
@@ -118,7 +121,8 @@ def setup_gpio():
 
 
 def main():
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
+    # Use MQTTv5 protocol; still fine with Mosquitto default
+    client = mqtt.Client(protocol=mqtt.MQTTv5,
                          client_id=f"{DEVICE_ID}-collector")
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
