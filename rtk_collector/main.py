@@ -7,7 +7,8 @@ import psutil
 from threading import Event
 import paho.mqtt.client as mqtt
 from typing import Optional
-from gpiod.line import Direction, Value  # <-- your env exposes these
+from gpiod.line import Direction, Value  # v2 enums present on your box
+import gpiod
 
 BROKER_HOST = os.getenv("MQTT_HOST", "localhost")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -15,32 +16,28 @@ DEVICE_ID = os.getenv("DEVICE_ID", socket.gethostname())
 BASE_TOPIC = os.getenv("BASE_TOPIC", "rtk")
 INTERVAL = int(os.getenv("INTERVAL_SEC", "5"))
 
-# Fixed front-panel pins on Rocktech (Pi 4 base)
+# Fixed Rocktech pins
 PIN_IO0 = int(os.getenv("IO0_PIN", "17"))
 PIN_IO1 = int(os.getenv("IO1_PIN", "18"))
 PIN_IO2 = int(os.getenv("IO2_PIN", "27"))
 PIN_IO3 = int(os.getenv("IO3_PIN", "22"))
+PIN_MAP = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
 
 stop = Event()
-
 
 def topic(path: str) -> str:
     return f"{BASE_TOPIC}/{DEVICE_ID}/{path}"
 
-
-# Accept any extra args paho might pass (avoids signature errors)
+# Accept extra args to avoid callback signature issues
 def on_connect(client, userdata, flags, rc, properties=None, *extra):
     print(f"[mqtt] connected rc={rc}")
-
 
 def on_disconnect(client, userdata, rc, properties=None, *extra):
     print(f"[mqtt] disconnected rc={rc}")
 
-
 def publish(client, path, value, retain=False):
     payload = {"ts": int(time.time() * 1000), "value": value}
     client.publish(topic(path), json.dumps(payload), qos=1, retain=retain)
-
 
 def format_dhms(seconds: float) -> str:
     secs = int(seconds)
@@ -48,7 +45,6 @@ def format_dhms(seconds: float) -> str:
     h, r = divmod(r, 3600)
     m, s = divmod(r, 60)
     return f"{d}d {h}h {m}m {s}s"
-
 
 def get_cpu_temp_c() -> Optional[float]:
     # 1) psutil
@@ -74,56 +70,43 @@ def get_cpu_temp_c() -> Optional[float]:
     # 3) vcgencmd
     try:
         import subprocess
-        out = subprocess.check_output(
-            ["vcgencmd", "measure_temp"], text=True).strip()
+        out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True).strip()
         if "temp=" in out:
             return float(out.split("temp=")[1].split("'")[0])
     except Exception:
         pass
     return None
 
-
-def setup_gpio():
-    """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 using gpiod v2 API present on this box."""
-    import gpiod  # your env has gpiod.LineSettings + request_lines
-
-    pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
-    cfg = {pin: gpiod.LineSettings(direction=Direction.INPUT)
-           for pin in pins.values()}
-
-    lines = gpiod.request_lines(
+def read_gpio_snapshot() -> dict:
+    """
+    Non-invasive read: request lines AS_IS, read once, release immediately.
+    Does not change direction/level and does not keep pins busy.
+    """
+    cfg = {pin: gpiod.LineSettings(direction=Direction.AS_IS) for pin in PIN_MAP.values()}
+    req = gpiod.request_lines(
         "/dev/gpiochip0",
         consumer="rtk-collector",
         config=cfg,
     )
-
-    def reader():
-        vals = lines.get_values(list(pins.values()))
+    try:
+        vals = req.get_values(list(PIN_MAP.values()))
         out = {}
         if isinstance(vals, dict):
-            for name, pin in pins.items():
+            for name, pin in PIN_MAP.items():
                 v = vals.get(pin, 0)
                 out[name] = 1 if v == Value.ACTIVE or v == 1 else 0
         else:
-            # iterable in the same order
-            for name, v in zip(pins.keys(), vals):
+            for name, v in zip(PIN_MAP.keys(), vals):
                 out[name] = 1 if v == Value.ACTIVE or v == 1 else 0
         return out
-
-    def releaser():
+    finally:
         try:
-            lines.release()
+            req.release()
         except Exception:
             pass
 
-    print(f"[gpio] ready on /dev/gpiochip0: {pins}")
-    return reader, releaser
-
-
 def main():
-    # Use MQTTv5 protocol; still fine with Mosquitto default
-    client = mqtt.Client(protocol=mqtt.MQTTv5,
-                         client_id=f"{DEVICE_ID}-collector")
+    client = mqtt.Client(protocol=mqtt.MQTTv5, client_id=f"{DEVICE_ID}-collector")
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.reconnect_delay_set(min_delay=1, max_delay=30)
@@ -137,14 +120,6 @@ def main():
             print(f"[mqtt] connect failed: {e}; retrying...")
             time.sleep(2)
 
-    # GPIO init
-    gpio_read = None
-    def gpio_release(): return None
-    try:
-        gpio_read, gpio_release = setup_gpio()
-    except Exception as e:
-        print(f"[gpio] init failed: {e}")
-
     client.loop_start()
 
     try:
@@ -152,24 +127,23 @@ def main():
             # Heartbeat (retained)
             publish(client, "heartbeat/alive", True, retain=True)
 
-            # CPU Temp
+            # Sys metrics
             temp = get_cpu_temp_c()
             if temp is not None:
                 publish(client, "sys/cpu_temp_c", temp)
-
-            # Load
             publish(client, "sys/load1", os.getloadavg()[0])
-
-            # Uptime
             uptime_sec = time.time() - psutil.boot_time()
             publish(client, "sys/uptime_s", uptime_sec)
             publish(client, "sys/uptime_dhms", format_dhms(uptime_sec))
 
-            # GPIO (if available)
-            if gpio_read:
-                vals = gpio_read()
+            # GPIO read-only snapshot (non-blocking)
+            try:
+                vals = read_gpio_snapshot()
                 for name, val in vals.items():
                     publish(client, f"gpio/{name}", val)
+            except Exception as e:
+                # Log once per loop, but don't crash the agent
+                print(f"[gpio] read error: {e}")
 
             time.sleep(INTERVAL)
     except KeyboardInterrupt:
@@ -178,11 +152,6 @@ def main():
         stop.set()
         client.loop_stop()
         client.disconnect()
-        try:
-            gpio_release()
-        except Exception:
-            pass
-
 
 if __name__ == "__main__":
     main()
