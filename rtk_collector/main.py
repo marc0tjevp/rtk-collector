@@ -6,6 +6,8 @@ import glob
 import psutil
 from threading import Event
 import paho.mqtt.client as mqtt
+from typing import Optional
+
 
 BROKER_HOST = os.getenv("MQTT_HOST", "localhost")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -33,7 +35,7 @@ def publish(client, path, value, retain=False):
     client.publish(topic(path), json.dumps(payload), qos=1, retain=retain)
 
 
-def get_cpu_temp_c() -> float | None:
+def get_cpu_temp_c() -> Optional[float]:
     # 1) try psutil first
     try:
         temps = psutil.sensors_temperatures()
