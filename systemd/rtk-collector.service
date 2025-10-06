@@ -1,0 +1,16 @@
+[Unit]
+Description=Rocktech Collector
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/rtk-collector
+WorkingDirectory=/opt/rtk-collector
+ExecStart=/usr/bin/python3 -m rtk_collector.main
+Restart=on-failure
+User=marco
+Group=marco
+
+[Install]
+WantedBy=multi-user.target
