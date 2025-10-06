@@ -7,6 +7,7 @@ import psutil
 from threading import Event
 import paho.mqtt.client as mqtt
 from typing import Optional
+from gpiod.line import Direction  # <-- from your env
 
 BROKER_HOST = os.getenv("MQTT_HOST", "localhost")
 BROKER_PORT = int(os.getenv("MQTT_PORT", "1883"))
@@ -14,7 +15,7 @@ DEVICE_ID = os.getenv("DEVICE_ID", socket.gethostname())
 BASE_TOPIC = os.getenv("BASE_TOPIC", "rtk")
 INTERVAL = int(os.getenv("INTERVAL_SEC", "5"))
 
-# GPIO env (defaults per your front panel)
+# Fixed front-panel pins on Rocktech (Pi 4 base)
 PIN_IO0 = int(os.getenv("IO0_PIN", "17"))
 PIN_IO1 = int(os.getenv("IO1_PIN", "18"))
 PIN_IO2 = int(os.getenv("IO2_PIN", "27"))
@@ -49,7 +50,7 @@ def format_dhms(seconds: float) -> str:
 
 
 def get_cpu_temp_c() -> Optional[float]:
-    # 1) try psutil first
+    # 1) psutil
     try:
         temps = psutil.sensors_temperatures()
         for key in ("cpu-thermal", "cpu_thermal", "coretemp", "soc_thermal"):
@@ -58,8 +59,7 @@ def get_cpu_temp_c() -> Optional[float]:
                 return float(arr[0].current)
     except Exception:
         pass
-
-    # 2) thermal_zone fallback
+    # 2) thermal zones
     try:
         for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
             tfile = os.path.join(zone, "temp")
@@ -70,8 +70,7 @@ def get_cpu_temp_c() -> Optional[float]:
                 return val / 1000.0 if val > 200 else val
     except Exception:
         pass
-
-    # 3) vcgencmd (Pi-specific)
+    # 3) vcgencmd
     try:
         import subprocess
         out = subprocess.check_output(
@@ -80,17 +79,16 @@ def get_cpu_temp_c() -> Optional[float]:
             return float(out.split("temp=")[1].split("'")[0])
     except Exception:
         pass
-
     return None
 
 
 def setup_gpio():
-    """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 using libgpiod v2 API."""
-    import gpiod
-    from gpiod.line import Direction, Settings  # v2 enums/classes
+    """Rocktech: IO0–IO3 as inputs on /dev/gpiochip0 using gpiod v2 API present on this box."""
+    import gpiod  # your env has gpiod.LineSettings, request_lines
 
     pins = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
-    cfg = {pin: Settings(direction=Direction.INPUT) for pin in pins.values()}
+    cfg = {pin: gpiod.LineSettings(direction=Direction.INPUT)
+           for pin in pins.values()}
 
     lines = gpiod.request_lines(
         "/dev/gpiochip0",
@@ -115,7 +113,7 @@ def setup_gpio():
         except Exception:
             pass
 
-    print(f"[gpio] ready (v2) on /dev/gpiochip0: {pins}")
+    print(f"[gpio] ready on /dev/gpiochip0: {pins}")
     return reader, releaser
 
 
@@ -137,7 +135,7 @@ def main():
 
     # GPIO init
     gpio_read = None
-    gpio_release = lambda: None
+    def gpio_release(): return None
     try:
         gpio_read, gpio_release = setup_gpio()
     except Exception as e:
