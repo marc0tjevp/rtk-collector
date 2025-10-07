@@ -4,14 +4,7 @@
   client_id = "rtk-telegraf"
   qos = 0
   connection_timeout = "5s"
-  data_format = "json_v2"
-
-  [[inputs.mqtt_consumer.json_v2]]
-    measurement_name = "rtk"
-    [[inputs.mqtt_consumer.json_v2.field]]
-      path = ""
-      rename = "payload"
-      type = "object"
+  data_format = "influx"
 
 [[outputs.influxdb_v2]]
   urls         = ["${INFLUX_URL}"]
