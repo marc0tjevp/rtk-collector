@@ -73,6 +73,14 @@ else
 fi
 echo
 
+# --- render telegraf.conf from template ---
+set -a
+source "$ENV_FILE"
+set +a
+envsubst < "$REPO_DIR/telegraf.conf.templ" > /etc/telegraf/telegraf.conf
+echo "[4b/8] Rendered telegraf.conf from template using environment variables"
+echo
+
 echo "[5/8] Install/refresh systemd service (keep repo unit; override only User/Group)…"
 sudo cp "$SERVICE_FILE_SRC" "$SERVICE_FILE_DST"
 
