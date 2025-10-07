@@ -6,6 +6,8 @@ Lightweight Python service for the Rocktech ISG-502 (Raspberry Pi 4B based).
 Publishes heartbeat, system metrics, and GPIO state snapshots to MQTT.  
 Metrics are consumed by **Telegraf** and written to **InfluxDB v2** for storage.
 
+---
+
 ## Features
 
 - Publishes every `INTERVAL_SEC` (default: 5s):
