@@ -53,11 +53,9 @@ INFLUX_ORG="${INFLUX_ORG:-$INFLUX_ORG_DEFAULT}"
 INFLUX_BUCKET="${INFLUX_BUCKET:-$INFLUX_BUCKET_DEFAULT}"
 INFLUX_RETENTION="${INFLUX_RETENTION:-$INFLUX_RETENTION_DEFAULT}"
 INFLUX_ADMIN_USER="${INFLUX_ADMIN_USER:-$INFLUX_ADMIN_USER_DEFAULT}"
-# If admin pass is unset, generate one (only used at first setup)
 INFLUX_ADMIN_PASS="${INFLUX_ADMIN_PASS:-}"
 
 if [ -z "$INFLUX_ADMIN_PASS" ]; then
-  # 24-char alnum
   INFLUX_ADMIN_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 || true)"
 fi
 
@@ -69,7 +67,6 @@ TELEGRAF_TOKEN=""
 
 if [ "$SETUP_ALLOWED" = "true" ]; then
   echo "[InfluxDB] Running first-time setup (org=${INFLUX_ORG}, bucket=${INFLUX_BUCKET})…"
-  # Perform non-interactive setup; returns JSON inc. auth token
   SETUP_OUT="$(influx setup \
     --host "$INFLUX_URL" \
     --username "$INFLUX_ADMIN_USER" \
@@ -88,7 +85,6 @@ if [ "$SETUP_ALLOWED" = "true" ]; then
     exit 1
   fi
 
-  # Create a dedicated RW token for Telegraf
   echo "[InfluxDB] Creating telegraf-rw token…"
   TELEGRAF_TOKEN="$(INFLUX_TOKEN="$ADMIN_TOKEN" influx auth create \
     --host "$INFLUX_URL" \
@@ -97,32 +93,37 @@ if [ "$SETUP_ALLOWED" = "true" ]; then
     --description "telegraf-rw" --json | jq -r '.token')"
 
 else
-  echo "[InfluxDB] Already initialized. Ensuring telegraf-rw token exists…"
+  echo "[InfluxDB] Already initialized."
 
-  # We need a token with permissions to list/create tokens.
-  # Prefer existing INFLUX_TOKEN from env; otherwise bail with a helpful message.
   if [ -z "${INFLUX_TOKEN:-}" ] || [ "$INFLUX_TOKEN" = "__SET_ME__" ]; then
-    echo "[WARN] INFLUX_TOKEN not set in $ENV_FILE; cannot manage tokens automatically."
-    echo "      Set a valid admin or all-buckets RW token to manage tokens via script."
-  else
-    # Try to find an existing token named telegraf-rw
-    EXISTING="$(INFLUX_TOKEN="$INFLUX_TOKEN" influx auth list \
-      --host "$INFLUX_URL" --org "$INFLUX_ORG" --json | jq -r '.[] | select(.description=="telegraf-rw") | .token' || true)"
-    if [ -n "$EXISTING" ]; then
-      TELEGRAF_TOKEN="$EXISTING"
-      echo "[InfluxDB] Found existing telegraf-rw token."
-    else
-      echo "[InfluxDB] Creating telegraf-rw token…"
-      TELEGRAF_TOKEN="$(INFLUX_TOKEN="$INFLUX_TOKEN" influx auth create \
-        --host "$INFLUX_URL" \
-        --org "$INFLUX_ORG" \
-        --read-buckets --write-buckets \
-        --description "telegraf-rw" --json | jq -r '.token')"
+    echo "[InfluxDB] No usable INFLUX_TOKEN in $ENV_FILE — creating a new all-access token…"
+
+    NEW_TOKEN="$(influx auth create \
+      --host "$INFLUX_URL" \
+      --org "$INFLUX_ORG" \
+      --all-access \
+      --json | jq -r '.token')"
+
+    if [ -z "$NEW_TOKEN" ] || [ "$NEW_TOKEN" = "null" ]; then
+      echo "[ERROR] Failed to create a new token. Check influxd logs."
+      exit 1
     fi
+
+    TELEGRAF_TOKEN="$NEW_TOKEN"
+
+    if grep -q '^INFLUX_TOKEN=' "$ENV_FILE"; then
+      echo "[InfluxDB] Writing new token into $ENV_FILE"
+      sudo sed -i "s|^INFLUX_TOKEN=.*$|INFLUX_TOKEN=$TELEGRAF_TOKEN|g" "$ENV_FILE"
+    else
+      echo "[InfluxDB] Appending INFLUX_TOKEN to $ENV_FILE"
+      echo "INFLUX_TOKEN=$TELEGRAF_TOKEN" | sudo tee -a "$ENV_FILE" >/dev/null
+    fi
+  else
+    echo "[InfluxDB] Using existing INFLUX_TOKEN from $ENV_FILE"
+    TELEGRAF_TOKEN="$INFLUX_TOKEN"
   fi
 fi
 
-# If we have a telegraf token and env still has placeholder, write it in
 if [ -n "$TELEGRAF_TOKEN" ]; then
   if [ ! -f "$ENV_FILE" ]; then
     echo "[InfluxDB] Creating $ENV_FILE with token…"
@@ -133,16 +134,10 @@ INFLUX_BUCKET=$INFLUX_BUCKET
 INFLUX_TOKEN=$TELEGRAF_TOKEN
 EOF
   else
-    # Replace placeholder or empty token only; leave user-set value untouched
-    if grep -q '^INFLUX_TOKEN=' "$ENV_FILE"; then
-      CUR_TOKEN="$(grep '^INFLUX_TOKEN=' "$ENV_FILE" | cut -d= -f2- || true)"
-      if [ -z "$CUR_TOKEN" ] || [ "$CUR_TOKEN" = "__SET_ME__" ]; then
-        echo "[InfluxDB] Writing telegraf token into $ENV_FILE"
-        sudo sed -i "s|^INFLUX_TOKEN=.*$|INFLUX_TOKEN=$TELEGRAF_TOKEN|g" "$ENV_FILE"
-      fi
-    else
-      echo "[InfluxDB] Appending INFLUX_TOKEN to $ENV_FILE"
-      echo "INFLUX_TOKEN=$TELEGRAF_TOKEN" | sudo tee -a "$ENV_FILE" >/dev/null
+    CUR_TOKEN="$(grep '^INFLUX_TOKEN=' "$ENV_FILE" | cut -d= -f2- || true)"
+    if [ -z "$CUR_TOKEN" ] || [ "$CUR_TOKEN" = "__SET_ME__" ]; then
+      echo "[InfluxDB] Writing telegraf token into $ENV_FILE"
+      sudo sed -i "s|^INFLUX_TOKEN=.*$|INFLUX_TOKEN=$TELEGRAF_TOKEN|g" "$ENV_FILE"
     fi
   fi
 fi
@@ -152,7 +147,7 @@ echo "  URL:     $INFLUX_URL"
 echo "  Org:     $INFLUX_ORG"
 echo "  Bucket:  $INFLUX_BUCKET"
 if [ -n "$TELEGRAF_TOKEN" ]; then
-  echo "  Token:   (telegraf-rw) written to $ENV_FILE (if placeholder)"
+  echo "  Token:   written to $ENV_FILE"
 else
   echo "  Token:   unchanged (use existing INFLUX_TOKEN in $ENV_FILE)"
 fi
