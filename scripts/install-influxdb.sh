@@ -37,7 +37,7 @@ wait_health() {
 fresh_reset() {
   echo "[InfluxDB] Performing full reset of local state…"
   sudo systemctl stop influxdb || true
-  # wipe BOTH locations (root home & var lib) — some distros default to /root/.influxdbv2
+  # wipe BOTH locations (root home & var lib) — some builds store under /root/.influxdbv2
   sudo rm -rf /root/.influxdbv2/* /var/lib/influxdb2/*
   sudo mkdir -p /var/lib/influxdb2/engine
   sudo chown -R influxdb:influxdb /var/lib/influxdb2
@@ -86,6 +86,7 @@ echo "[InfluxDB] Checking if initial setup is allowed…"
 SETUP_ALLOWED="$(curl -s "${INFLUX_URL%/}/api/v2/setup" | jq -r '.allowed // empty' || true)"
 
 TELEGRAF_TOKEN=""
+ADMIN_TOKEN=""
 
 do_first_setup() {
   # Ensure we have an admin password and persist it
@@ -102,12 +103,23 @@ do_first_setup() {
     --bucket "$INFLUX_BUCKET" \
     --retention "$INFLUX_RETENTION" \
     --force --json 2>&1 || true)"
-
   echo "[InfluxDB] Setup output: $SETUP_OUT"
-  ADMIN_TOKEN="$(echo "$SETUP_OUT" | jq -r '.auth.token' 2>/dev/null || true)"
+
+  # Some versions do not include .auth.token — handle both cases.
+  ADMIN_TOKEN="$(echo "$SETUP_OUT" | jq -r '.auth.token // empty' 2>/dev/null || true)"
   if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-    echo "[ERROR] Failed to capture admin token from influx setup output"
-    exit 1
+    echo "[InfluxDB] No token in setup output — logging in to mint one…"
+    influx login --host "$INFLUX_URL" \
+      --username "$INFLUX_ADMIN_USER" \
+      --password "$INFLUX_ADMIN_PASS" \
+      --json >/dev/null
+    ADMIN_TOKEN="$(influx auth create \
+      --host "$INFLUX_URL" \
+      --org "$INFLUX_ORG" \
+      --all-access --json | jq -r '.token')"
+  fi
+  if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
+    echo "[ERROR] Failed to obtain admin token after setup+login"; exit 1
   fi
 
   echo "[InfluxDB] Creating telegraf-rw token…"
@@ -117,8 +129,7 @@ do_first_setup() {
     --read-buckets --write-buckets \
     --description "telegraf-rw" --json | jq -r '.token')"
   if [ -z "$TELEGRAF_TOKEN" ] || [ "$TELEGRAF_TOKEN" = "null" ]; then
-    echo "[ERROR] Failed to create telegraf token"
-    exit 1
+    echo "[ERROR] Failed to create telegraf token"; exit 1
   fi
 
   # Persist creds & settings
@@ -140,9 +151,12 @@ else
     TELEGRAF_TOKEN="$INFLUX_TOKEN"
   else
     # Try login with persisted admin creds (if we have them)
-    if [ -n "$INFLUX_ADMIN_PASS" ]; then
+    if [ -z "${ADMIN_TOKEN:-}" ] && [ -n "$INFLUX_ADMIN_PASS" ]; then
       echo "[InfluxDB] Attempting CLI login with persisted admin creds…"
-      if influx login --host "$INFLUX_URL" --username "$INFLUX_ADMIN_USER" --password "$INFLUX_ADMIN_PASS" --json >/dev/null 2>&1; then
+      if influx login --host "$INFLUX_URL" \
+           --username "$INFLUX_ADMIN_USER" \
+           --password "$INFLUX_ADMIN_PASS" \
+           --json >/dev/null 2>&1; then
         echo "[InfluxDB] Login ok. Creating new all-access token…"
         TELEGRAF_TOKEN="$(influx auth create --host "$INFLUX_URL" --org "$INFLUX_ORG" --all-access --json | jq -r '.token')"
         [ -z "$TELEGRAF_TOKEN" ] && { echo "[ERROR] Failed to mint token after login"; exit 1; }
@@ -153,12 +167,11 @@ else
       fi
     fi
 
-    # If still no token, fully reset (destructive) — this is the hands-off recovery
+    # If still no token, fully reset (hands-off recovery)
     if [ -z "$TELEGRAF_TOKEN" ]; then
       if [ "$INFLUX_AUTO_RESET" = "true" ]; then
         echo "[WARN] No usable token and cannot login. Auto-reset enabled → wiping local InfluxDB state."
         fresh_reset
-        # After reset, setup should be allowed
         do_first_setup
       else
         echo "[ERROR] Initialized server with no creds and INFLUX_AUTO_RESET=false. Aborting."
