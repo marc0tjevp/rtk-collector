@@ -111,6 +111,15 @@ do_first_setup() {
     echo "[ERROR] No admin token in setup response"; exit 1
   fi
 
+  # --- always persist the admin token first (safety net) ---
+  upsert_env INFLUX_URL "$INFLUX_URL"
+  upsert_env INFLUX_ORG "$INFLUX_ORG"
+  upsert_env INFLUX_BUCKET "$INFLUX_BUCKET"
+  upsert_env INFLUX_TOKEN "$ADMIN_TOKEN"
+  upsert_env INFLUX_ADMIN_USER "$INFLUX_ADMIN_USER"
+  upsert_env INFLUX_ADMIN_PASS "$INFLUX_ADMIN_PASS"
+  sudo chmod 600 "$ENV_FILE" || true
+
   echo "[InfluxDB] Creating telegraf-rw token via API…"
   ORG_ID="$(echo "$SETUP_RES" | jq -r '.org.id')"
   BUCKET_ID="$(echo "$SETUP_RES" | jq -r '.bucket.id')"
@@ -132,17 +141,13 @@ do_first_setup() {
     -H 'Content-Type: application/json' \
     --data "$AUTH_BODY" | jq -r '.token')"
 
-  if [ -z "$TELEGRAF_TOKEN" ] || [ "$TELEGRAF_TOKEN" = "null" ]; then
-    echo "[ERROR] Failed to create telegraf token"; exit 1
+  if [ -n "$TELEGRAF_TOKEN" ] && [ "$TELEGRAF_TOKEN" != "null" ]; then
+    # overwrite with telegraf token
+    upsert_env INFLUX_TOKEN "$TELEGRAF_TOKEN"
+    echo "[InfluxDB] Telegraf token persisted"
+  else
+    echo "[WARN] Failed to create telegraf token, sticking with admin token"
   fi
-
-  upsert_env INFLUX_URL "$INFLUX_URL"
-  upsert_env INFLUX_ORG "$INFLUX_ORG"
-  upsert_env INFLUX_BUCKET "$INFLUX_BUCKET"
-  upsert_env INFLUX_TOKEN "$TELEGRAF_TOKEN"
-  upsert_env INFLUX_ADMIN_USER "$INFLUX_ADMIN_USER"
-  upsert_env INFLUX_ADMIN_PASS "$INFLUX_ADMIN_PASS"
-  sudo chmod 600 "$ENV_FILE" || true
 }
 
 if [ "$SETUP_ALLOWED" = "true" ]; then
