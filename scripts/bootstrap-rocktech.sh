@@ -77,7 +77,7 @@ echo
 set -a
 source "$ENV_FILE"
 set +a
-envsubst < "$REPO_DIR/telegraf.conf.templ" > /etc/telegraf/telegraf.conf
+envsubst < "$REPO_DIR/telegraf/telegraf.conf.tmpl" > /etc/telegraf/telegraf.conf
 echo "[4b/8] Rendered telegraf.conf from template using environment variables"
 echo
 
