@@ -10,18 +10,26 @@ SERVICE_FILE_DST="/etc/systemd/system/influxdb.service"
 INFLUX_URL_DEFAULT="http://127.0.0.1:8086"
 INFLUX_ORG_DEFAULT="rtk"
 INFLUX_BUCKET_DEFAULT="rtk"
-INFLUX_RETENTION_DEFAULT="0"
+INFLUX_RETENTION_DEFAULT="0"   # 0 = infinite
 INFLUX_ADMIN_USER_DEFAULT="admin"
-INFLUX_AUTO_RESET_DEFAULT="true"
+INFLUX_AUTO_RESET_DEFAULT="true"  # destructive auto-recovery when no valid creds
 
 # --- helpers ---
+sanitize() { printf '%s' "$1" | tr -d '\r\n[:space:]'; }
+
+read_env() {  # read a single key from $ENV_FILE without splitting on '='
+  sudo sed -n "s/^$1=//p" "$ENV_FILE" | tr -d '\r\n'
+}
+
 upsert_env() {
   local key="$1" val="$2"
-  val="$(echo -n "$val" | tr -d '\r\n')"   # sanitize before writing
+  val="$(sanitize "$val")"
   sudo touch "$ENV_FILE"
   if grep -q "^${key}=" "$ENV_FILE"; then
+    # replace line in-place
     sudo sed -i "s|^${key}=.*|${key}=${val}|g" "$ENV_FILE"
   else
+    # append new line (single newline at EOL only)
     printf '%s=%s\n' "$key" "$val" | sudo tee -a "$ENV_FILE" >/dev/null
   fi
 }
@@ -38,14 +46,13 @@ wait_health() {
 fresh_reset() {
   echo "[InfluxDB] Performing full reset of local state…"
   sudo systemctl stop influxdb || true
-  sudo rm -rf /root/.influxdbv2/* /var/lib/influxdb2/* ~/.influxdbv2/*
+  sudo rm -rf /root/.influxdbv2/* /var/lib/influxdb2/* ~/.influxdbv2/* || true
   sudo mkdir -p /var/lib/influxdb2/engine
   sudo chown -R influxdb:influxdb /var/lib/influxdb2
   sudo systemctl start influxdb
   wait_health
 }
 
-# --- install pkgs ---
 echo "[InfluxDB] Installing packages…"
 if ! command -v influxd >/dev/null 2>&1; then
   curl -s https://repos.influxdata.com/influxdata-archive_compat.key \
@@ -60,7 +67,7 @@ if ! command -v jq >/dev/null 2>&1; then
   sudo apt-get install -y jq
 fi
 
-# Ensure dirs
+# Ensure daemon user & dirs
 sudo useradd -r -s /usr/sbin/nologin influxdb 2>/dev/null || true
 sudo mkdir -p /var/lib/influxdb2/engine
 sudo chown -R influxdb:influxdb /var/lib/influxdb2
@@ -72,8 +79,11 @@ sudo systemctl enable --now influxdb
 wait_health || true
 echo
 
-# --- load env ---
-if [ -f "$ENV_FILE" ]; then set -a; source "$ENV_FILE"; set +a; fi
+# --- load env (if present) ---
+if [ -f "$ENV_FILE" ]; then set -a; # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
 
 INFLUX_URL="${INFLUX_URL:-$INFLUX_URL_DEFAULT}"
 INFLUX_ORG="${INFLUX_ORG:-$INFLUX_ORG_DEFAULT}"
@@ -111,12 +121,13 @@ do_first_setup() {
   if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
     echo "[ERROR] No admin token in setup response"; exit 1
   fi
+  ADMIN_TOKEN_CLEAN="$(sanitize "$ADMIN_TOKEN")"
 
-  # --- always persist the admin token first (safety net) ---
+  # Persist admin creds + admin token (safety net)
   upsert_env INFLUX_URL "$INFLUX_URL"
   upsert_env INFLUX_ORG "$INFLUX_ORG"
   upsert_env INFLUX_BUCKET "$INFLUX_BUCKET"
-  upsert_env INFLUX_TOKEN "$ADMIN_TOKEN"
+  upsert_env INFLUX_TOKEN "$ADMIN_TOKEN_CLEAN"
   upsert_env INFLUX_ADMIN_USER "$INFLUX_ADMIN_USER"
   upsert_env INFLUX_ADMIN_PASS "$INFLUX_ADMIN_PASS"
   sudo chmod 600 "$ENV_FILE" || true
@@ -138,13 +149,12 @@ do_first_setup() {
     }')"
 
   TELEGRAF_TOKEN="$(curl -sS -X POST "${INFLUX_URL%/}/api/v2/authorizations" \
-    -H "Authorization: Token ${ADMIN_TOKEN}" \
+    -H "Authorization: Token ${ADMIN_TOKEN_CLEAN}" \
     -H 'Content-Type: application/json' \
     --data "$AUTH_BODY" | jq -r '.token')"
 
   if [ -n "$TELEGRAF_TOKEN" ] && [ "$TELEGRAF_TOKEN" != "null" ]; then
-    # overwrite with telegraf token
-    upsert_env INFLUX_TOKEN "$TELEGRAF_TOKEN"
+    upsert_env INFLUX_TOKEN "$(sanitize "$TELEGRAF_TOKEN")"
     echo "[InfluxDB] Telegraf token persisted"
   else
     echo "[WARN] Failed to create telegraf token, sticking with admin token"
@@ -155,11 +165,12 @@ if [ "$SETUP_ALLOWED" = "true" ]; then
   do_first_setup
 else
   echo "[InfluxDB] Already initialized."
-  if [ -n "${INFLUX_TOKEN:-}" ] && [ "$INFLUX_TOKEN" != "__SET_ME__" ]; then
+  EXISTING_ENV_TOKEN="$(read_env INFLUX_TOKEN)"
+  if [ -n "$EXISTING_ENV_TOKEN" ] && [ "$EXISTING_ENV_TOKEN" != "__SET_ME__" ]; then
     echo "[InfluxDB] Using INFLUX_TOKEN from $ENV_FILE"
-    TELEGRAF_TOKEN="$INFLUX_TOKEN"
+    TELEGRAF_TOKEN="$EXISTING_ENV_TOKEN"
   else
-    # try reuse CLI config
+    # Try reuse influx CLI default config token if present
     EXISTING_TOKEN="$(influx config list --json 2>/dev/null | jq -r '.default.token // empty' || true)"
     if [ -n "$EXISTING_TOKEN" ] && [ "$EXISTING_TOKEN" != "null" ]; then
       echo "[InfluxDB] Reusing token from influx CLI config"
@@ -178,11 +189,22 @@ else
   fi
 fi
 
+# --- Self-test with scope-correct endpoint (buckets) ---
+TOKEN_CLEAN="$(sanitize "${TELEGRAF_TOKEN:-$(read_env INFLUX_TOKEN)}")"
+if ! curl -fsS "${INFLUX_URL%/}/api/v2/buckets" \
+      -H "Authorization: Token $TOKEN_CLEAN" >/dev/null; then
+  echo "[ERROR] Saved token failed against /buckets (whitespace or stale)."
+  echo "       Token(first 12): $(printf '%s' "$TOKEN_CLEAN" | cut -c1-12)..."
+  exit 1
+fi
+echo "[InfluxDB] Token verified against /buckets."
+
+echo
 echo "[InfluxDB] Summary:"
 echo "  URL:     $INFLUX_URL"
 echo "  Org:     $INFLUX_ORG"
 echo "  Bucket:  $INFLUX_BUCKET"
-if [ -n "$TELEGRAF_TOKEN" ]; then
+if [ -n "$TOKEN_CLEAN" ]; then
   echo "  Token:   present (stored in $ENV_FILE)"
 else
   echo "  Token:   missing"
