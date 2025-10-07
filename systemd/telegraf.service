@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegraf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/default/rtk-collector
+ExecStart=/usr/bin/telegraf --config /etc/telegraf/telegraf.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

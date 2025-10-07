@@ -1,0 +1,13 @@
+[Unit]
+Description=InfluxDB 2
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/influxd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
