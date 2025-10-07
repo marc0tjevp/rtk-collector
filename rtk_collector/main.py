@@ -25,19 +25,56 @@ PIN_MAP = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
 
 stop = Event()
 
+
 def topic(path: str) -> str:
     return f"{BASE_TOPIC}/{DEVICE_ID}/{path}"
 
 # Accept extra args to avoid callback signature issues
+
+
 def on_connect(client, userdata, flags, rc, properties=None, *extra):
     print(f"[mqtt] connected rc={rc}")
+
 
 def on_disconnect(client, userdata, rc, properties=None, *extra):
     print(f"[mqtt] disconnected rc={rc}")
 
+# --- helpers for line protocol ---
+
+
+def _esc(s: str) -> str:
+    return str(s).replace(" ", r"\ ").replace(",", r"\,").replace("=", r"\=")
+
+
+def _fval(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return f"{v}i"
+    if isinstance(v, float):
+        return repr(v)
+    return '"' + str(v).replace('"', r'\"') + '"'
+
+
+def _to_line_protocol(device_id: str, path: str, value, ts_ns: int | None = None) -> str:
+    parts = path.split("/", 1)
+    group = parts[0] if parts else "misc"
+    field = parts[1] if len(parts) > 1 else parts[0]
+    tags = f"device={_esc(device_id)},group={_esc(group)}"
+    line = f"rtk,{tags} {_esc(field)}={_fval(value)}"
+    if ts_ns is None:
+        ts_ns = time.time_ns()
+    return f"{line} {ts_ns}"
+
+
 def publish(client, path, value, retain=False):
-    payload = {"ts": int(time.time() * 1000), "value": value}
-    client.publish(topic(path), json.dumps(payload), qos=1, retain=retain)
+    try:
+        ts_ns = time.time_ns()
+        line = _to_line_protocol(DEVICE_ID, path, value, ts_ns)
+        return client.publish(topic(path), line, qos=1, retain=retain)
+    except Exception as e:
+        return client.publish(topic(path), str(value), qos=1, retain=retain)
+
 
 def format_dhms(seconds: float) -> str:
     secs = int(seconds)
@@ -45,6 +82,7 @@ def format_dhms(seconds: float) -> str:
     h, r = divmod(r, 3600)
     m, s = divmod(r, 60)
     return f"{d}d {h}h {m}m {s}s"
+
 
 def get_cpu_temp_c() -> Optional[float]:
     # 1) psutil
@@ -70,19 +108,22 @@ def get_cpu_temp_c() -> Optional[float]:
     # 3) vcgencmd
     try:
         import subprocess
-        out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True).strip()
+        out = subprocess.check_output(
+            ["vcgencmd", "measure_temp"], text=True).strip()
         if "temp=" in out:
             return float(out.split("temp=")[1].split("'")[0])
     except Exception:
         pass
     return None
 
+
 def read_gpio_snapshot() -> dict:
     """
     Non-invasive read: request lines AS_IS, read once, release immediately.
     Does not change direction/level and does not keep pins busy.
     """
-    cfg = {pin: gpiod.LineSettings(direction=Direction.AS_IS) for pin in PIN_MAP.values()}
+    cfg = {pin: gpiod.LineSettings(direction=Direction.AS_IS)
+           for pin in PIN_MAP.values()}
     req = gpiod.request_lines(
         "/dev/gpiochip0",
         consumer="rtk-collector",
@@ -105,8 +146,10 @@ def read_gpio_snapshot() -> dict:
         except Exception:
             pass
 
+
 def main():
-    client = mqtt.Client(protocol=mqtt.MQTTv5, client_id=f"{DEVICE_ID}-collector")
+    client = mqtt.Client(protocol=mqtt.MQTTv5,
+                         client_id=f"{DEVICE_ID}-collector")
     client.on_connect = on_connect
     client.on_disconnect = on_disconnect
     client.reconnect_delay_set(min_delay=1, max_delay=30)
@@ -136,13 +179,12 @@ def main():
             publish(client, "sys/uptime_s", uptime_sec)
             publish(client, "sys/uptime_dhms", format_dhms(uptime_sec))
 
-            # GPIO read-only snapshot (non-blocking)
+            # GPIO read-only snapshot
             try:
                 vals = read_gpio_snapshot()
                 for name, val in vals.items():
                     publish(client, f"gpio/{name}", val)
             except Exception as e:
-                # Log once per loop, but don't crash the agent
                 print(f"[gpio] read error: {e}")
 
             time.sleep(INTERVAL)
@@ -152,6 +194,7 @@ def main():
         stop.set()
         client.loop_stop()
         client.disconnect()
+
 
 if __name__ == "__main__":
     main()
