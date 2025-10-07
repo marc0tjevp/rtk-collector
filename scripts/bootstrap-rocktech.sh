@@ -89,7 +89,7 @@ sudo systemctl restart rtk-collector
 echo
 
 echo "[6/8] Install InfluxDB…"
-"$REPO_DIR/scripts/install-influxdb.sh"
+bash "$REPO_DIR/scripts/install-influxdb.sh"
 echo
 
 # Warn if INFLUX_TOKEN is unset/placeholder before starting Telegraf
@@ -103,7 +103,7 @@ fi
 echo
 
 echo "[7/8] Install Telegraf…"
-"$REPO_DIR/scripts/install-telegraf.sh"
+bash "$REPO_DIR/scripts/install-telegraf.sh"
 echo
 
 echo "[8/8] Status…"
