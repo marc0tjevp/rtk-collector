@@ -77,9 +77,16 @@ if [ "$SETUP_ALLOWED" = "true" ]; then
     --org "$INFLUX_ORG" \
     --bucket "$INFLUX_BUCKET" \
     --retention "$INFLUX_RETENTION" \
-    --force --json)"
-  # Capture the initial admin token (works fine for Telegraf too, but we’ll create a dedicated one below)
-  ADMIN_TOKEN="$(echo "$SETUP_OUT" | jq -r '.auth.token')"
+    --force --json 2>&1)"
+
+  echo "[InfluxDB] Setup output: $SETUP_OUT"
+
+  ADMIN_TOKEN="$(echo "$SETUP_OUT" | jq -r '.auth.token' 2>/dev/null || true)"
+
+  if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
+    echo "[ERROR] Failed to capture admin token from influx setup output"
+    exit 1
+  fi
 
   # Create a dedicated RW token for Telegraf
   echo "[InfluxDB] Creating telegraf-rw token…"
