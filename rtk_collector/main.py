@@ -16,7 +16,6 @@ DEVICE_ID = os.getenv("DEVICE_ID", socket.gethostname())
 BASE_TOPIC = os.getenv("BASE_TOPIC", "rtk")
 INTERVAL = int(os.getenv("INTERVAL_SEC", "5"))
 
-# Fixed Rocktech pins
 PIN_IO0 = int(os.getenv("IO0_PIN", "17"))
 PIN_IO1 = int(os.getenv("IO1_PIN", "18"))
 PIN_IO2 = int(os.getenv("IO2_PIN", "27"))
@@ -25,56 +24,40 @@ PIN_MAP = {"IO0": PIN_IO0, "IO1": PIN_IO1, "IO2": PIN_IO2, "IO3": PIN_IO3}
 
 stop = Event()
 
-
 def topic(path: str) -> str:
     return f"{BASE_TOPIC}/{DEVICE_ID}/{path}"
 
-# Accept extra args to avoid callback signature issues
-
-
-def on_connect(client, userdata, flags, rc, properties=None, *extra):
+def on_connect(client, userdata, flags=None, rc=0, *_, **__):
     print(f"[mqtt] connected rc={rc}")
 
-
-def on_disconnect(client, userdata, rc, properties=None, *extra):
+def on_disconnect(client, userdata, rc=0, *_, **__):
     print(f"[mqtt] disconnected rc={rc}")
 
-# --- helpers for line protocol ---
-
-
+# --- line protocol helpers ---
 def _esc(s: str) -> str:
     return str(s).replace(" ", r"\ ").replace(",", r"\,").replace("=", r"\=")
 
-
 def _fval(v):
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, int):
-        return f"{v}i"
-    if isinstance(v, float):
-        return repr(v)
+    if isinstance(v, bool):  return "true" if v else "false"
+    if isinstance(v, int):   return f"{v}i"
+    if isinstance(v, float): return repr(v)
     return '"' + str(v).replace('"', r'\"') + '"'
-
 
 def _to_line_protocol(device_id: str, path: str, value, ts_ns: int | None = None) -> str:
     parts = path.split("/", 1)
     group = parts[0] if parts else "misc"
     field = parts[1] if len(parts) > 1 else parts[0]
     tags = f"device={_esc(device_id)},group={_esc(group)}"
-    line = f"rtk,{tags} {_esc(field)}={_fval(value)}"
-    if ts_ns is None:
-        ts_ns = time.time_ns()
-    return f"{line} {ts_ns}"
+    ts = time.time_ns() if ts_ns is None else ts_ns
+    return f"rtk,{tags} {_esc(field)}={_fval(value)} {ts}"
 
-
+# --- publish: LP payload, topics unchanged ---
 def publish(client, path, value, retain=False):
     try:
-        ts_ns = time.time_ns()
-        line = _to_line_protocol(DEVICE_ID, path, value, ts_ns)
+        line = _to_line_protocol(DEVICE_ID, path, value, time.time_ns())
         return client.publish(topic(path), line, qos=1, retain=retain)
-    except Exception as e:
+    except Exception:
         return client.publish(topic(path), str(value), qos=1, retain=retain)
-
 
 def format_dhms(seconds: float) -> str:
     secs = int(seconds)
@@ -83,9 +66,7 @@ def format_dhms(seconds: float) -> str:
     m, s = divmod(r, 60)
     return f"{d}d {h}h {m}m {s}s"
 
-
 def get_cpu_temp_c() -> Optional[float]:
-    # 1) psutil
     try:
         temps = psutil.sensors_temperatures()
         for key in ("cpu-thermal", "cpu_thermal", "coretemp", "soc_thermal"):
@@ -94,41 +75,29 @@ def get_cpu_temp_c() -> Optional[float]:
                 return float(arr[0].current)
     except Exception:
         pass
-    # 2) thermal zones
     try:
         for zone in glob.glob("/sys/class/thermal/thermal_zone*"):
             tfile = os.path.join(zone, "temp")
             if os.path.exists(tfile):
                 with open(tfile) as f:
                     raw = f.read().strip()
-                val = float(raw)
-                return val / 1000.0 if val > 200 else val
+                if raw:
+                    val = float(raw)
+                    return val / 1000.0 if val > 200 else val
     except Exception:
         pass
-    # 3) vcgencmd
     try:
         import subprocess
-        out = subprocess.check_output(
-            ["vcgencmd", "measure_temp"], text=True).strip()
+        out = subprocess.check_output(["vcgencmd", "measure_temp"], text=True).strip()
         if "temp=" in out:
             return float(out.split("temp=")[1].split("'")[0])
     except Exception:
         pass
     return None
 
-
 def read_gpio_snapshot() -> dict:
-    """
-    Non-invasive read: request lines AS_IS, read once, release immediately.
-    Does not change direction/level and does not keep pins busy.
-    """
-    cfg = {pin: gpiod.LineSettings(direction=Direction.AS_IS)
-           for pin in PIN_MAP.values()}
-    req = gpiod.request_lines(
-        "/dev/gpiochip0",
-        consumer="rtk-collector",
-        config=cfg,
-    )
+    cfg = {pin: gpiod.LineSettings(direction=Direction.AS_IS) for pin in PIN_MAP.values()}
+    req = gpiod.request_lines("/dev/gpiochip0", consumer="rtk-collector", config=cfg)
     try:
         vals = req.get_values(list(PIN_MAP.values()))
         out = {}
@@ -146,15 +115,14 @@ def read_gpio_snapshot() -> dict:
         except Exception:
             pass
 
+def build_client() -> mqtt.Client:
+    cli = mqtt.Client(client_id=f"{DEVICE_ID}-collector", protocol=mqtt.MQTTv311)
+    cli.on_connect = on_connect
+    cli.on_disconnect = on_disconnect
+    return cli
 
 def main():
-    client = mqtt.Client(protocol=mqtt.MQTTv5,
-                         client_id=f"{DEVICE_ID}-collector")
-    client.on_connect = on_connect
-    client.on_disconnect = on_disconnect
-    client.reconnect_delay_set(min_delay=1, max_delay=30)
-
-    # connect loop
+    client = build_client()
     while not stop.is_set():
         try:
             client.connect(BROKER_HOST, BROKER_PORT, keepalive=30)
@@ -164,29 +132,22 @@ def main():
             time.sleep(2)
 
     client.loop_start()
-
     try:
         while not stop.is_set():
-            # Heartbeat (retained)
             publish(client, "heartbeat/alive", True, retain=True)
-
-            # Sys metrics
-            temp = get_cpu_temp_c()
-            if temp is not None:
-                publish(client, "sys/cpu_temp_c", temp)
+            t = get_cpu_temp_c()
+            if t is not None:
+                publish(client, "sys/cpu_temp_c", t)
             publish(client, "sys/load1", os.getloadavg()[0])
-            uptime_sec = time.time() - psutil.boot_time()
-            publish(client, "sys/uptime_s", uptime_sec)
-            publish(client, "sys/uptime_dhms", format_dhms(uptime_sec))
-
-            # GPIO read-only snapshot
+            up = time.time() - psutil.boot_time()
+            publish(client, "sys/uptime_s", up)
+            publish(client, "sys/uptime_dhms", format_dhms(up))
             try:
                 vals = read_gpio_snapshot()
                 for name, val in vals.items():
                     publish(client, f"gpio/{name}", val)
             except Exception as e:
                 print(f"[gpio] read error: {e}")
-
             time.sleep(INTERVAL)
     except KeyboardInterrupt:
         pass
@@ -194,7 +155,6 @@ def main():
         stop.set()
         client.loop_stop()
         client.disconnect()
-
 
 if __name__ == "__main__":
     main()
