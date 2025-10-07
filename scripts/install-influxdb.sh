@@ -22,7 +22,7 @@ upsert_env() {
   if grep -q "^${key}=" "$ENV_FILE"; then
     sudo sed -i "s|^${key}=.*|${key}=${val}|g" "$ENV_FILE"
   else
-    echo "${key}=${val}" | sudo tee -a "$ENV_FILE" >/dev/null
+    printf '%s=%s\n' "$key" "$val" | sudo tee -a "$ENV_FILE" >/dev/null
   fi
 }
 
