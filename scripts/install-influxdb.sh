@@ -12,8 +12,7 @@ INFLUX_ORG_DEFAULT="rtk"
 INFLUX_BUCKET_DEFAULT="rtk"
 INFLUX_RETENTION_DEFAULT="0"   # 0 = infinite
 INFLUX_ADMIN_USER_DEFAULT="admin"
-# If initialized with no creds, auto-reset to recover fully hands-off.
-INFLUX_AUTO_RESET_DEFAULT="true"
+INFLUX_AUTO_RESET_DEFAULT="true"  # if initialized but no creds, wipe & re-setup automatically
 
 # --- helpers ---
 upsert_env() {
@@ -26,6 +25,26 @@ upsert_env() {
   fi
 }
 
+wait_health() {
+  for _ in {1..30}; do
+    if curl -sf "http://127.0.0.1:8086/health" >/dev/null; then return 0; fi
+    sleep 1
+  done
+  echo "[InfluxDB] Health check timed out."
+  return 1
+}
+
+fresh_reset() {
+  echo "[InfluxDB] Performing full reset of local state…"
+  sudo systemctl stop influxdb || true
+  # wipe BOTH locations (root home & var lib) — some distros default to /root/.influxdbv2
+  sudo rm -rf /root/.influxdbv2/* /var/lib/influxdb2/*
+  sudo mkdir -p /var/lib/influxdb2/engine
+  sudo chown -R influxdb:influxdb /var/lib/influxdb2
+  sudo systemctl start influxdb
+  wait_health
+}
+
 echo "[InfluxDB] Installing packages…"
 if ! command -v influxd >/dev/null 2>&1; then
   curl -s https://repos.influxdata.com/influxdata-archive_compat.key \
@@ -36,21 +55,20 @@ if ! command -v influxd >/dev/null 2>&1; then
   sudo apt-get install -y influxdb2
 fi
 
-# jq to parse JSON
 if ! command -v jq >/dev/null 2>&1; then
   sudo apt-get install -y jq
 fi
+
+# Ensure service user & data dirs
+sudo useradd -r -s /usr/sbin/nologin influxdb 2>/dev/null || true
+sudo mkdir -p /var/lib/influxdb2/engine
+sudo chown -R influxdb:influxdb /var/lib/influxdb2
 
 echo "[InfluxDB] Installing systemd unit…"
 sudo install -m 0644 "$SERVICE_FILE_SRC" "$SERVICE_FILE_DST"
 sudo systemctl daemon-reload
 sudo systemctl enable --now influxdb
-
-echo "[InfluxDB] Waiting for API to be ready on :8086…"
-for i in {1..30}; do
-  if curl -sf "http://127.0.0.1:8086/health" >/dev/null; then break; fi
-  sleep 1
-done
+wait_health || true
 echo
 
 # Load env (if present)
@@ -61,7 +79,7 @@ INFLUX_ORG="${INFLUX_ORG:-$INFLUX_ORG_DEFAULT}"
 INFLUX_BUCKET="${INFLUX_BUCKET:-$INFLUX_BUCKET_DEFAULT}"
 INFLUX_RETENTION="${INFLUX_RETENTION:-$INFLUX_RETENTION_DEFAULT}"
 INFLUX_ADMIN_USER="${INFLUX_ADMIN_USER:-$INFLUX_ADMIN_USER_DEFAULT}"
-INFLUX_ADMIN_PASS="${INFLUX_ADMIN_PASS:-}"   # will be generated on first setup if empty
+INFLUX_ADMIN_PASS="${INFLUX_ADMIN_PASS:-}"   # generated on first setup if empty
 INFLUX_AUTO_RESET="${INFLUX_AUTO_RESET:-$INFLUX_AUTO_RESET_DEFAULT}"
 
 echo "[InfluxDB] Checking if initial setup is allowed…"
@@ -70,10 +88,11 @@ SETUP_ALLOWED="$(curl -s "${INFLUX_URL%/}/api/v2/setup" | jq -r '.allowed // emp
 TELEGRAF_TOKEN=""
 
 do_first_setup() {
-  # Ensure we have an admin password to persist
+  # Ensure we have an admin password and persist it
   if [ -z "$INFLUX_ADMIN_PASS" ]; then
     INFLUX_ADMIN_PASS="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24 || true)"
   fi
+
   echo "[InfluxDB] First-time setup (org=${INFLUX_ORG}, bucket=${INFLUX_BUCKET})…"
   SETUP_OUT="$(influx setup \
     --host "$INFLUX_URL" \
@@ -82,12 +101,15 @@ do_first_setup() {
     --org "$INFLUX_ORG" \
     --bucket "$INFLUX_BUCKET" \
     --retention "$INFLUX_RETENTION" \
-    --force --json 2>&1)"
+    --force --json 2>&1 || true)"
+
   echo "[InfluxDB] Setup output: $SETUP_OUT"
   ADMIN_TOKEN="$(echo "$SETUP_OUT" | jq -r '.auth.token' 2>/dev/null || true)"
   if [ -z "$ADMIN_TOKEN" ] || [ "$ADMIN_TOKEN" = "null" ]; then
-    echo "[ERROR] Failed to capture admin token from influx setup output"; exit 1
+    echo "[ERROR] Failed to capture admin token from influx setup output"
+    exit 1
   fi
+
   echo "[InfluxDB] Creating telegraf-rw token…"
   TELEGRAF_TOKEN="$(INFLUX_TOKEN="$ADMIN_TOKEN" influx auth create \
     --host "$INFLUX_URL" \
@@ -95,8 +117,10 @@ do_first_setup() {
     --read-buckets --write-buckets \
     --description "telegraf-rw" --json | jq -r '.token')"
   if [ -z "$TELEGRAF_TOKEN" ] || [ "$TELEGRAF_TOKEN" = "null" ]; then
-    echo "[ERROR] Failed to create telegraf token"; exit 1
+    echo "[ERROR] Failed to create telegraf token"
+    exit 1
   fi
+
   # Persist creds & settings
   upsert_env INFLUX_URL "$INFLUX_URL"
   upsert_env INFLUX_ORG "$INFLUX_ORG"
@@ -115,7 +139,7 @@ else
     echo "[InfluxDB] Using existing INFLUX_TOKEN from $ENV_FILE"
     TELEGRAF_TOKEN="$INFLUX_TOKEN"
   else
-    # Try to login with persisted admin creds (if we have them)
+    # Try login with persisted admin creds (if we have them)
     if [ -n "$INFLUX_ADMIN_PASS" ]; then
       echo "[InfluxDB] Attempting CLI login with persisted admin creds…"
       if influx login --host "$INFLUX_URL" --username "$INFLUX_ADMIN_USER" --password "$INFLUX_ADMIN_PASS" --json >/dev/null 2>&1; then
@@ -128,19 +152,13 @@ else
         echo "[InfluxDB] Login failed with persisted admin creds."
       fi
     fi
-    # If still no token, recover by auto-reset (destructive)
+
+    # If still no token, fully reset (destructive) — this is the hands-off recovery
     if [ -z "$TELEGRAF_TOKEN" ]; then
       if [ "$INFLUX_AUTO_RESET" = "true" ]; then
         echo "[WARN] No usable token and cannot login. Auto-reset enabled → wiping local InfluxDB state."
-        sudo systemctl stop influxdb
-        sudo rm -rf /var/lib/influxdb2/*
-        sudo systemctl start influxdb
-        echo "[InfluxDB] Waiting for API after reset…"
-        for i in {1..30}; do
-          if curl -sf "http://127.0.0.1:8086/health" >/dev/null; then break; fi
-          sleep 1
-        done
-        SETUP_ALLOWED="true"
+        fresh_reset
+        # After reset, setup should be allowed
         do_first_setup
       else
         echo "[ERROR] Initialized server with no creds and INFLUX_AUTO_RESET=false. Aborting."

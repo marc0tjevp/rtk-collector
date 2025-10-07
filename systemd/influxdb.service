@@ -5,7 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/influxd
+User=influxdb
+Group=influxdb
+Environment=HOME=/var/lib/influxdb2
+ExecStart=/usr/bin/influxd --bolt-path /var/lib/influxdb2/influxd.bolt --engine-path /var/lib/influxdb2/engine
 Restart=on-failure
 RestartSec=5
 
