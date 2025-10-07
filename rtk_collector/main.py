@@ -43,7 +43,8 @@ def _fval(v):
     if isinstance(v, float): return repr(v)
     return '"' + str(v).replace('"', r'\"') + '"'
 
-def _to_line_protocol(device_id: str, path: str, value, ts_ns: int | None = None) -> str:
+# fixed: Python 3.9 compatible
+def _to_line_protocol(device_id: str, path: str, value, ts_ns: Optional[int] = None) -> str:
     parts = path.split("/", 1)
     group = parts[0] if parts else "misc"
     field = parts[1] if len(parts) > 1 else parts[0]
