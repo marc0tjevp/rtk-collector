@@ -17,6 +17,7 @@ INFLUX_AUTO_RESET_DEFAULT="true"
 # --- helpers ---
 upsert_env() {
   local key="$1" val="$2"
+  val="$(echo -n "$val" | tr -d '\r\n')"   # sanitize before writing
   sudo touch "$ENV_FILE"
   if grep -q "^${key}=" "$ENV_FILE"; then
     sudo sed -i "s|^${key}=.*|${key}=${val}|g" "$ENV_FILE"
