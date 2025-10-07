@@ -1,6 +1,6 @@
 [[inputs.mqtt_consumer]]
-  servers = ["tcp://$${MQTT_HOST}:$${MQTT_PORT}"]
-  topics  = ["$${MQTT_TOPICS}"]
+  servers = ["tcp://${MQTT_HOST}:${MQTT_PORT}"]
+  topics  = ["${MQTT_TOPICS}"]
   client_id = "rtk-telegraf"
   qos = 0
   connection_timeout = "10s"   # was 5s
@@ -8,9 +8,8 @@
   persistent_session = true    # retains subscription across reconnects
   data_format = "influx"
 
-
 [[outputs.influxdb_v2]]
-  urls         = ["$${INFLUX_URL}"]
-  token        = "$${INFLUX_TOKEN}"
-  organization = "$${INFLUX_ORG}"
-  bucket       = "$${INFLUX_BUCKET}"
+  urls         = ["${INFLUX_URL}"]
+  token        = "${INFLUX_TOKEN}"
+  organization = "${INFLUX_ORG}"
+  bucket       = "${INFLUX_BUCKET}"

@@ -19,7 +19,10 @@ sudo test -f "$ENV_FILE" || { echo "Missing $ENV_FILE"; exit 1; }
 
 echo "[Telegraf] Writing config from template…"
 sudo mkdir -p "$TELEGRAF_CONF_DIR"
-sudo install -m 0644 "$REPO_DIR/telegraf/telegraf.conf.tmpl" "$TELEGRAF_CONF"
+sudo bash -c '
+  set -a; source "'"$ENV_FILE"'"; set +a
+  envsubst < "'"$REPO_DIR"'/telegraf/telegraf.conf.tmpl" > "'"$TELEGRAF_CONF"'"
+'
 
 echo "[Telegraf] Installing systemd unit…"
 sudo install -m 0644 "$SERVICE_FILE_SRC" "$SERVICE_FILE_DST"
