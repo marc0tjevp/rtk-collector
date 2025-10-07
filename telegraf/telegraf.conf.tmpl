@@ -3,8 +3,11 @@
   topics  = ["${MQTT_TOPICS}"]
   client_id = "rtk-telegraf"
   qos = 0
-  connection_timeout = "5s"
+  connection_timeout = "10s"   # was 5s
+  keep_alive = "60s"           # ensures broker doesn’t drop idle clients
+  persistent_session = true    # retains subscription across reconnects
   data_format = "influx"
+
 
 [[outputs.influxdb_v2]]
   urls         = ["${INFLUX_URL}"]
