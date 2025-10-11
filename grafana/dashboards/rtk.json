@@ -16,7 +16,7 @@
         {
           "refId": "A",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
     },
@@ -30,7 +30,7 @@
         {
           "refId": "A",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
         }
       ]
     },
@@ -44,7 +44,7 @@
         {
           "refId": "A",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"uptime_s\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"uptime_s\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
     },
@@ -57,7 +57,7 @@
         {
           "refId": "A",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"uptime_dhms\")\n  |> last()\n  |> keep(columns:[\"_time\",\"_value\"])"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"uptime_dhms\")\n  |> last()\n  |> keep(columns:[\"_time\",\"_value\"])"
         }
       ]
     },
@@ -70,7 +70,7 @@
         {
           "refId": "T",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "t1 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nt2 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nunion(tables: [t1, t2])"
+          "query": "t1 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nt2 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nunion(tables: [t1, t2])"
         }
       ]
     },
@@ -83,7 +83,7 @@
         {
           "refId": "A",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"heartbeat\" and r._field==\"alive\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"heartbeat\" and r._field==\"alive\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
     },
@@ -96,7 +96,7 @@
         {
           "refId": "A",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"gpio\" and (r._field==\"IO0\" or r._field==\"IO1\" or r._field==\"IO2\" or r._field==\"IO3\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"gpio\" and (r._field==\"IO0\" or r._field==\"IO1\" or r._field==\"IO2\" or r._field==\"IO3\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
     }
