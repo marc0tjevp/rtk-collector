@@ -44,13 +44,10 @@
         {
           "refId": "S",
           "datasource": "InfluxDB v2 (rtk)",
-          "query": "u_s = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"uptime_s\")\n  |> last()\n\nu_d = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"uptime_dhms\")\n  |> last()\n\nalive = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"heartbeat\" and r._field==\"alive\")\n  |> last()\n\n# rows\nrow_ud = u_d |> keep(columns:[\"_value\"]) |> map(fn:(r)=> ({ metric: \"Uptime (dhms)\", value: string(v: r._value) }))\nrow_us = u_s |> keep(columns:[\"_value\"]) |> map(fn:(r)=> ({ metric: \"Uptime (s)\", value: string(v: r._value) }))\nrow_boot = u_s |> map(fn:(r)=> ({ t: now() - duration(v: int(v: r._value) * 1000000000) })) |> map(fn:(r)=> ({ metric: \"Last boot\", value: string(v: r.t) }))\nrow_on = alive |> map(fn:(r)=> ({ metric: \"Online\", value: if r._value then \"Yes\" else \"No\" }))\nrow_seen = alive |> keep(columns:[\"_time\"]) |> map(fn:(r)=> ({ metric: \"Last seen\", value: string(v: now() - r._time) }))\n\nunion(tables:[row_ud, row_us, row_boot, row_on, row_seen])\n  |> keep(columns:[\"metric\",\"value\"])"
+          "query": "u_s = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"uptime_s\")\n  |> last()\n\nu_d = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"sys\" and r._field==\"uptime_dhms\")\n  |> last()\n\nalive = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r.group==\"heartbeat\" and r._field==\"alive\")\n  |> last()\n\nrow_ud = u_d\n  |> keep(columns:[\"_value\"]) \n  |> map(fn:(r)=> ({ metric: \"Uptime (dhms)\", value: string(v: r._value) }))\n\nrow_us = u_s\n  |> keep(columns:[\"_value\"]) \n  |> map(fn:(r)=> ({ metric: \"Uptime (s)\", value: string(v: r._value) }))\n\nrow_on = alive\n  |> keep(columns:[\"_value\"]) \n  |> map(fn:(r)=> ({ metric: \"Online\", value: if bool(v: r._value) then \"Yes\" else \"No\" }))\n\nrow_seen = alive\n  |> keep(columns:[\"_time\"]) \n  |> map(fn:(r)=> ({ metric: \"Last seen\", value: string(v: r._time) }))\n\nunion(tables:[row_ud, row_us, row_on, row_seen])\n  |> keep(columns:[\"metric\",\"value\"])"
         }
       ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": []
-      }
+      "fieldConfig": { "defaults": {}, "overrides": [] }
     },
 
     {
