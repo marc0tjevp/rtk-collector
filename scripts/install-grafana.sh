@@ -36,16 +36,21 @@ EnvironmentFile=-/etc/default/rtk-collector
 Environment=GF_EXPAND_ENV_VARS=true
 EOF
 
-
 # ---- REQUIRE REPO FILES (no auto-generate) ----
 require_file "$INFLUX_DS_SRC"
 require_file "$DASH_PROV_SRC"
 require_file "$DASH_JSON_SRC"
 
-echo "[Grafana] Provisioning InfluxDB v2 datasource…"
+# Load env so envsubst has values
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+
+echo "[Grafana] Provisioning InfluxDB v2 datasource (rendered)…"
 sudo mkdir -p /etc/grafana/provisioning/datasources
-sudo install -m 0644 "$INFLUX_DS_SRC" \
-  /etc/grafana/provisioning/datasources/influxdb.yml
+# Render ${INFLUX_*} into the final file so Grafana doesn't rely on runtime env expansion
+envsubst < "$INFLUX_DS_SRC" | sudo tee /etc/grafana/provisioning/datasources/influxdb.yml >/dev/null
 
 echo "[Grafana] Provisioning dashboards…"
 sudo mkdir -p /etc/grafana/provisioning/dashboards
