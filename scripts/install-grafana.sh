@@ -30,10 +30,12 @@ fi
 
 echo "[Grafana] Wiring environment from $ENV_FILE…"
 sudo mkdir -p /etc/systemd/system/grafana-server.service.d
-sudo tee /etc/systemd/system/grafana-server.service.d/override.conf >/dev/null <<EOF
+sudo tee /etc/systemd/system/grafana-server.service.d/override.conf >/dev/null <<'EOF'
 [Service]
-EnvironmentFile=$ENV_FILE
+EnvironmentFile=-/etc/default/rtk-collector
+Environment=GF_EXPAND_ENV_VARS=true
 EOF
+
 
 # ---- REQUIRE REPO FILES (no auto-generate) ----
 require_file "$INFLUX_DS_SRC"
