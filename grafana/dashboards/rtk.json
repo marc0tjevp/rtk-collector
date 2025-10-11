@@ -15,7 +15,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
@@ -29,7 +29,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
         }
       ]
@@ -43,7 +43,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"uptime_s\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
@@ -56,7 +56,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"uptime_dhms\")\n  |> last()\n  |> keep(columns:[\"_time\",\"_value\"])"
         }
       ]
@@ -69,7 +69,7 @@
       "targets": [
         {
           "refId": "T",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "t1 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nt2 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nunion(tables: [t1, t2])"
         }
       ]
@@ -82,7 +82,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"heartbeat\" and r._field==\"alive\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
@@ -95,7 +95,7 @@
       "targets": [
         {
           "refId": "A",
-          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "datasource": { "type": "influxdb", "uid": "influx-rtk" },
           "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"gpio\" and (r._field==\"IO0\" or r._field==\"IO1\" or r._field==\"IO2\" or r._field==\"IO3\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
         }
       ]
