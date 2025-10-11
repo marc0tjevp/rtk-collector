@@ -1,0 +1,104 @@
+{
+  "id": null,
+  "uid": "rtk-overview",
+  "title": "Rocktech RTK Overview",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "CPU Temp (°C)",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "celsius" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Load (1-min)",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "none" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Uptime",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"uptime_s\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Uptime (dhms)",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"uptime_dhms\")\n  |> last()\n  |> keep(columns:[\"_time\",\"_value\"])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU Temp & Load (trend)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 } } },
+      "targets": [
+        {
+          "refId": "T",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "t1 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"cpu_temp_c\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nt2 = from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"sys\" and r._field==\"load1\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n\nunion(tables: [t1, t2])"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Heartbeat (alive)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "bool" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"heartbeat\" and r._field==\"alive\")\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "GPIO IO0..IO3",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "influxdb", "uid": "grafana-default-influxdb" },
+          "query": "from(bucket: v.bucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn:(r)=> r._measurement==\"gpio\" and (r._field==\"IO0\" or r._field==\"IO1\" or r._field==\"IO2\" or r._field==\"IO3\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: last, createEmpty: false)"
+        }
+      ]
+    }
+  ]
+}
