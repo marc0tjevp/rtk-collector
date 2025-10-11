@@ -14,15 +14,15 @@ MOSQ_CONF_FILE="$MOSQ_CONF_DIR/rtk.conf"
 VENV_DIR="$REPO_DIR/.venv"
 ROCKTECH_IP=$(hostname -I | awk '{print $1}')
 
-echo "[0/8] Running as: ${RUN_USER}"
+echo "[0/9] Running as: ${RUN_USER}"
 echo
 
-echo "[1/8] Installing OS packages…"
+echo "[1/9] Installing OS packages…"
 sudo apt update
 sudo apt install -y python3-venv python3-pip mosquitto mosquitto-clients python3-libgpiod
 echo
 
-echo "[1b/8] Ensuring ${RUN_USER} is in gpio group…"
+echo "[1b/9] Ensuring ${RUN_USER} is in gpio group…"
 if id -nG "$RUN_USER" | grep -qw gpio; then
   echo "  -> ${RUN_USER} already in gpio group"
 else
@@ -31,7 +31,7 @@ else
 fi
 echo
 
-echo "[2/8] Python venv + deps…"
+echo "[2/9] Python venv + deps…"
 if [ ! -d "$VENV_DIR" ]; then
   sudo -u "$RUN_USER" python3 -m venv "$VENV_DIR"
 fi
@@ -39,7 +39,7 @@ sudo -u "$RUN_USER" "$VENV_DIR/bin/pip" install --upgrade pip
 sudo -u "$RUN_USER" "$VENV_DIR/bin/pip" install -r "$REPO_DIR/requirements.txt"
 echo
 
-echo "[3/8] Mosquitto config for LAN access…"
+echo "[3/9] Mosquitto config for LAN access…"
 sudo mkdir -p "$MOSQ_CONF_DIR"
 sudo tee "$MOSQ_CONF_FILE" >/dev/null <<'CONF'
 listener 1883 0.0.0.0
@@ -49,7 +49,7 @@ sudo systemctl enable mosquitto
 sudo systemctl restart mosquitto
 echo
 
-echo "[4/8] Environment file…"
+echo "[4/9] Environment file…"
 if [ ! -f "$ENV_FILE" ]; then
   sudo tee "$ENV_FILE" >/dev/null <<'ENV'
 # --- MQTT ---
@@ -78,10 +78,10 @@ set -a
 source "$ENV_FILE"
 set +a
 envsubst < "$REPO_DIR/telegraf/telegraf.conf.tmpl" > /etc/telegraf/telegraf.conf
-echo "[4b/8] Rendered telegraf.conf from template using environment variables"
+echo "[4b/9] Rendered telegraf.conf from template using environment variables"
 echo
 
-echo "[5/8] Install/refresh systemd service (keep repo unit; override only User/Group)…"
+echo "[5/9] Install/refresh systemd service (keep repo unit; override only User/Group)…"
 sudo cp "$SERVICE_FILE_SRC" "$SERVICE_FILE_DST"
 
 sudo mkdir -p "$SERVICE_DROPIN_DIR"
@@ -96,7 +96,7 @@ sudo systemctl enable rtk-collector
 sudo systemctl restart rtk-collector
 echo
 
-echo "[6/8] Install InfluxDB…"
+echo "[6/9] Install InfluxDB…"
 bash "$REPO_DIR/scripts/install-influxdb.sh"
 echo
 
@@ -110,11 +110,14 @@ if [ -f "$ENV_FILE" ]; then
 fi
 echo
 
-echo "[7/8] Install Telegraf…"
+echo "[7/9] Install Telegraf…"
 bash "$REPO_DIR/scripts/install-telegraf.sh"
 echo
 
-echo "[8/8] Status…"
+echo "[8/9] Install Grafana…"
+bash "$REPO_DIR/scripts/install-grafana.sh"
+
+echo "[9/9] Status…"
 ip -br -4 addr show | awk '{print $1,$3}'
 echo
 sudo ss -tlnp | grep 1883 || true

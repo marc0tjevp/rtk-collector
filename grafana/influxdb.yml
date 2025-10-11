@@ -1,0 +1,15 @@
+apiVersion: 1
+datasources:
+  - name: InfluxDB v2 (rtk)
+    type: influxdb
+    access: proxy
+    isDefault: true
+    editable: true
+    url: ${INFLUX_URL}
+    jsonData:
+      version: Flux
+      organization: ${INFLUX_ORG}
+      defaultBucket: ${INFLUX_BUCKET}
+      tlsSkipVerify: true
+    secureJsonData:
+      token: ${INFLUX_TOKEN}
